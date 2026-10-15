@@ -30,6 +30,7 @@
     "gulp-replace": "^1.1.4",
     "gulp-unzip": "^1.1.0",
     "node-fetch": "^3.3.2",
+    "playwright-core": "1.56.1",
     "prop-types": "^15.8.1",
     "properties-loader": "^0.0.1",
     "react": "^18.2.0",
