@@ -421,6 +421,106 @@ await withBrowser('en-US', async (page, errors) => {
   )
 })
 
+await withBrowser('en-US', async (page, errors) => {
+  await page.goto(base + '/data.json')
+  await page.waitForSelector('.treeTable', { timeout: 10000 })
+  const panelRow = (p) => page.locator('#jv-panel').locator(row(page, p))
+  check(
+    'badge on JSON string',
+    (await row(page, '/payload').locator('.jv-nested-badge').count()) === 1,
+  )
+  check(
+    'no badge on plain string',
+    (await row(page, '/name').locator('.jv-nested-badge').count()) === 0,
+  )
+  await row(page, '/payload').locator('.jv-nested-badge').click()
+  check(
+    'panel opens',
+    await page
+      .locator('#jv-panel')
+      .isVisible()
+      .catch(() => false),
+  )
+  check('panel shows parsed keys', (await panelRow('/id').count()) === 1)
+  check(
+    'first crumb is source path',
+    ((await page.locator('.jv-crumb').first().textContent()) ?? '') ===
+      'payload',
+  )
+  await panelRow('/inner').locator('.jv-nested-badge').click()
+  check(
+    'second level opens',
+    (await page.locator('.jv-crumb').count()) === 2 &&
+      (await panelRow('/deep').count()) === 1,
+  )
+  await panelRow('/deep').locator('td.treeLabelCell').click({ button: 'right' })
+  await page.locator('[data-action="copy-path"]').click()
+  check(
+    'panel copy path is relative',
+    (await copied(page)) === 'deep',
+    await copied(page),
+  )
+  await page.locator('.jv-crumb').first().click()
+  check(
+    'breadcrumb goes back',
+    (await page.locator('.jv-crumb').count()) === 1 &&
+      (await panelRow('/id').count()) === 1,
+  )
+  await page.locator('.jv-panel-close').click()
+  check('close removes panel', (await page.locator('#jv-panel').count()) === 0)
+  await row(page, '/payload')
+    .locator('td.treeLabelCell')
+    .click({ button: 'right' })
+  await page.locator('[data-action="view-json"]').click()
+  check('View as JSON opens panel', (await panelRow('/id').count()) === 1)
+  check(
+    'no errors during panel checks',
+    errors.length === 0,
+    errors.join(' ; '),
+  )
+})
+
+await withBrowser('en-US', async (page, errors) => {
+  await page.goto(base + '/huge-nested.json')
+  await page.waitForSelector('.treeTable', { timeout: 10000 })
+  check(
+    'no badge over 1,000,000 chars',
+    (await row(page, '/big').locator('.jv-nested-badge').count()) === 0,
+  )
+  await row(page, '/big').locator('td.treeLabelCell').click({ button: 'right' })
+  await page.locator('[data-action="view-json"]').click()
+  check(
+    'View as JSON still opens huge string',
+    (await page.locator('#jv-panel tr.treeRow[id="/s"]').count()) === 1,
+  )
+  check('no errors on huge nested', errors.length === 0, errors.join(' ; '))
+})
+
+await withBrowser('en-US', async (page, errors) => {
+  await page.goto(base + '/large.json')
+  await page.waitForSelector('.treeTable', { timeout: 15000 })
+  const started = Date.now()
+  await page.getByRole('button', { name: 'Expand All' }).click()
+  const badged = await page
+    .waitForFunction(
+      () => document.querySelectorAll('.jv-nested-badge').length >= 3000,
+      null,
+      { timeout: 20000 },
+    )
+    .then(
+      () => true,
+      () => false,
+    )
+  const ms = Date.now() - started
+  const responsive = await page.evaluate(() => 1 + 1).then((v) => v === 2)
+  check(
+    'large doc: Expand All badges all 3000 rows and stays responsive',
+    badged && responsive,
+    `${ms} ms`,
+  )
+  check('no errors on large doc', errors.length === 0, errors.join(' ; '))
+})
+
 server.close()
 console.log(`${passes} passed, ${failures} failed`)
 process.exit(failures ? 1 : 0)

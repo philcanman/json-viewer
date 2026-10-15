@@ -118,3 +118,92 @@
   width: 100%;
   height: 100%;
 }
+
+.jv-panel {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  background: var(--theme-body-background, #fff);
+  color: var(--theme-body-color, #000);
+  border-left: 1px solid var(--theme-splitter-color, #ccc);
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+}
+
+.jv-panel-resize {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+}
+
+.jv-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--theme-toolbar-background, #f9f9fa);
+  border-bottom: 1px solid var(--theme-splitter-color, #ccc);
+}
+
+.jv-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.jv-crumb,
+.jv-panel-close {
+  border: 0;
+  background: none;
+  color: var(--theme-highlight-blue, #0074e8);
+  font: inherit;
+  font-family: monospace;
+  cursor: pointer;
+}
+
+.jv-crumb:disabled {
+  color: inherit;
+  cursor: default;
+}
+
+.jv-panel-close {
+  font-size: 16px;
+  color: inherit;
+}
+
+.jv-panel-body {
+  flex: 1;
+  overflow: auto;
+}
+
+.jv-panel-error {
+  padding: 8px;
+  color: #d70022;
+}
+
+.jv-nested-badge {
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid var(--theme-splitter-color, #ccc);
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--theme-highlight-blue, #0074e8);
+  cursor: pointer;
+}
+
+.jv-nested-badge:hover,
+.jv-nested-badge:focus {
+  background: var(--theme-selection-background, #0074e8);
+  color: var(--theme-selection-color, #fff);
+  outline: none;
+}

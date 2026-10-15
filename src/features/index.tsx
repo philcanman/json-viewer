@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom'
 import { logDebug } from '../utils'
 import { copyToClipboard } from './clipboard'
 import { classify } from './classify'
+import { looksLikeJson, parseNested } from './nestedJson'
+import { PanelLevel, SidePanel } from './SidePanel'
 import { Tooltip, TooltipModel } from './Tooltip'
 import { ContextMenu, MenuActions, MenuModel } from './ContextMenu'
 import {
@@ -25,6 +27,7 @@ interface Target {
 }
 
 const HOVER_DELAY_MS = 300
+const BADGE_MAX_LENGTH = 1_000_000
 
 const guard = (fn: () => void) => {
   try {
@@ -55,12 +58,48 @@ export function installFeatures(content: HTMLElement): void {
     }
   }
 
+  let levels: PanelLevel[] = []
+  let panelWidth = Math.round(window.innerWidth * 0.4)
+  const nestedCache = new Map<string, boolean>()
+
+  const setLevels = (next: PanelLevel[]) => {
+    levels = next
+    for (const key of Array.from(nestedCache.keys())) {
+      if (!key.startsWith('main:')) nestedCache.delete(key)
+    }
+    hideTooltip()
+    render()
+  }
+
+  const openNested = (target: Target) => {
+    if (typeof target.value !== 'string') return
+    const level: PanelLevel = {
+      title: formatPath(target.steps, pathFormat) || '(root)',
+      value: parseNested(target.value),
+      sourceLength: target.value.length,
+    }
+    setLevels(
+      target.level === null
+        ? [level]
+        : [...levels.slice(0, target.level + 1), level],
+    )
+  }
+
+  const panelTop = () =>
+    document.querySelector('.tabs-navigation')?.getBoundingClientRect()
+      .bottom ?? 0
+
   const mainData = (): unknown =>
     (window as unknown as { $json?: { data: unknown } }).$json?.data
 
   const dataFor = (
     row: HTMLElement,
   ): { data: unknown; level: number | null } | null => {
+    const panelTree = row.closest<HTMLElement>('[data-jv-level]')
+    if (panelTree && overlay.contains(panelTree)) {
+      const level = Number(panelTree.dataset.jvLevel)
+      return levels[level] ? { data: levels[level].value, level } : null
+    }
     if (content.contains(row) && row.closest('.jsonPanelBox')) {
       return { data: mainData(), level: null }
     }
@@ -97,13 +136,31 @@ export function installFeatures(content: HTMLElement): void {
         if (menu) copyToClipboard(copyText(menu.target.value))
         closeMenu()
       }),
-    viewJson: closeMenu,
+    viewJson: () =>
+      guard(() => {
+        const target = menu?.target
+        closeMenu()
+        if (target) openNested(target)
+      }),
     close: closeMenu,
   }
 
   function render() {
     ReactDOM.render(
       <>
+        {levels.length > 0 && (
+          <SidePanel
+            levels={levels}
+            width={panelWidth}
+            top={panelTop()}
+            onPop={(i) => setLevels(levels.slice(0, i + 1))}
+            onClose={() => setLevels([])}
+            onResize={(w) => {
+              panelWidth = w
+              render()
+            }}
+          />
+        )}
         {menu && (
           <ContextMenu
             key={`${menu.model.x},${menu.model.y}`}
@@ -131,7 +188,8 @@ export function installFeatures(content: HTMLElement): void {
           y: e.clientY,
           defaultFormat: pathFormat,
           paths,
-          canViewJson: false,
+          canViewJson:
+            typeof target.value === 'string' && looksLikeJson(target.value),
         },
         target,
       }
@@ -191,4 +249,74 @@ export function installFeatures(content: HTMLElement): void {
       render()
     }
   })
+
+  const addBadge = (row: HTMLElement) => {
+    const cell = row.querySelector<HTMLElement>('td.treeValueCell')
+    if (!cell) return
+    const existing = cell.querySelector('.jv-nested-badge')
+    if (existing) {
+      if (existing !== cell.lastElementChild) cell.appendChild(existing)
+      return
+    }
+    const target = targetOf(row)
+    if (
+      !target ||
+      typeof target.value !== 'string' ||
+      target.value.length > BADGE_MAX_LENGTH
+    ) {
+      return
+    }
+    const key = `${target.level ?? 'main'}:${row.id}`
+    let nested = nestedCache.get(key)
+    if (nested === undefined) {
+      nested = parseNested(target.value) !== null
+      nestedCache.set(key, nested)
+    }
+    if (!nested) return
+    const badge = document.createElement('span')
+    badge.className = 'jv-nested-badge'
+    badge.setAttribute('role', 'button')
+    badge.tabIndex = 0
+    badge.title = 'View as JSON'
+    badge.textContent = '{…}'
+    // Stops the click before React's document listener toggles the row
+    const open = (e: Event) => {
+      e.stopPropagation()
+      e.preventDefault()
+      guard(() => {
+        const t = targetOf(row)
+        if (t) openNested(t)
+      })
+    }
+    badge.addEventListener('click', open)
+    badge.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') open(e)
+    })
+    cell.appendChild(badge)
+  }
+
+  const scan = (node: HTMLElement) => {
+    if (node.matches('tr.stringRow')) addBadge(node)
+    node.querySelectorAll<HTMLElement>('tr.stringRow').forEach(addBadge)
+  }
+
+  const observer = new MutationObserver((records) =>
+    guard(() => {
+      for (const r of records) {
+        r.addedNodes.forEach((n) => {
+          if (n instanceof HTMLElement) scan(n)
+        })
+        if (
+          r.target instanceof HTMLElement &&
+          r.target.matches('td.treeValueCell')
+        ) {
+          const row = r.target.closest<HTMLElement>('tr.stringRow')
+          if (row) addBadge(row)
+        }
+      }
+    }),
+  )
+  observer.observe(content, { childList: true, subtree: true })
+  observer.observe(overlay, { childList: true, subtree: true })
+  scan(content)
 }
