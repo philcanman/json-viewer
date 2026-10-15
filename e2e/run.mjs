@@ -216,6 +216,161 @@ await withBrowser('en-US', async (page, errors) => {
 
 // --- feature suites ---
 
+await withBrowser('en-US', async (page, errors) => {
+  await page.goto(base + '/data.json')
+  await page.waitForSelector('.treeTable', { timeout: 10000 })
+  const menu = page.locator('.jv-menu').first()
+  const openMenu = async (p) => {
+    await page.mouse.click(1, 1)
+    await row(page, p).locator('td.treeLabelCell').click({ button: 'right' })
+  }
+
+  await openMenu('/items/3/name')
+  check(
+    'menu opens on row right-click',
+    await menu.isVisible().catch(() => false),
+  )
+  check(
+    'menu previews default JS path',
+    (
+      (await page
+        .locator('[data-action="copy-path"]')
+        .textContent()
+        .catch(() => '')) ?? ''
+    ).includes('items[3].name'),
+  )
+  await page.locator('[data-action="copy-path"]').click()
+  check(
+    'Copy path copies JS path',
+    (await copied(page)) === 'items[3].name',
+    await copied(page),
+  )
+  check(
+    'menu closes after copy',
+    (await page.locator('.jv-menu').count()) === 0,
+  )
+
+  for (const [format, expected] of [
+    ['jsonpath', '$.items[3].name'],
+    ['jq', '.items[3].name'],
+    ['js', 'items[3].name'],
+  ]) {
+    await openMenu('/items/3/name')
+    await page.locator('[data-action="copy-path-as"]').hover()
+    await page.locator(`.jv-submenu [data-format="${format}"]`).click()
+    check(
+      `Copy path as ${format}`,
+      (await copied(page)) === expected,
+      await copied(page),
+    )
+  }
+
+  await openMenu('/items/3/first-name')
+  await page.locator('[data-action="copy-path"]').click()
+  check(
+    'odd key copies bracket form',
+    (await copied(page)) === 'items[3]["first-name"]',
+    await copied(page),
+  )
+
+  await openMenu('/a\\/b')
+  await page.locator('[data-action="copy-path"]').click()
+  check(
+    '/slash key copies as one key',
+    (await copied(page)) === '["a/b"]',
+    await copied(page),
+  )
+  await openMenu('/a\\/b')
+  await page.locator('[data-action="copy-value"]').click()
+  check(
+    '/slash key value resolves',
+    (await copied(page)) === 'slash',
+    await copied(page),
+  )
+
+  await openMenu('/big')
+  await page.locator('[data-action="copy-value"]').click()
+  check(
+    'Copy value keeps 20-digit number',
+    (await copied(page)) === '12345678901234567890',
+    await copied(page),
+  )
+
+  await openMenu('/nested')
+  await page.locator('[data-action="copy-value"]').click()
+  check(
+    'Copy value pretty-prints objects',
+    (await copied(page)) ===
+      JSON.stringify({ list: [1, 2, 3], flag: true, nothing: null }, null, 2),
+    await copied(page),
+  )
+
+  await openMenu('/name')
+  await page.keyboard.press('Escape')
+  check('Escape closes menu', (await page.locator('.jv-menu').count()) === 0)
+
+  await openMenu('/name')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  check(
+    'keyboard reaches Copy value',
+    (await copied(page)) === 'json-viewer',
+    await copied(page),
+  )
+
+  await openMenu('/many/[0…99]')
+  check(
+    'bucket row keeps native menu',
+    (await page.locator('.jv-menu').count()) === 0,
+  )
+
+  await page.selectOption('#jv-path-format', 'jq')
+  await page.waitForTimeout(300)
+  await page.reload()
+  await page.waitForSelector('.treeTable', { timeout: 10000 })
+  check(
+    'path format persists across reload',
+    (await page.inputValue('#jv-path-format')) === 'jq',
+  )
+  await openMenu('/items/3/name')
+  check(
+    'default format changes Copy path preview',
+    (
+      (await page.locator('[data-action="copy-path"]').textContent()) ?? ''
+    ).includes('.items[3].name'),
+  )
+  await page.keyboard.press('Escape')
+  check('no errors during menu checks', errors.length === 0, errors.join(' ; '))
+})
+
+await withBrowser(
+  'en-US',
+  async (page) => {
+    await page.goto(base + '/data.json')
+    await page.waitForSelector('.treeTable', { timeout: 10000 })
+    await row(page, '/name')
+      .locator('td.treeLabelCell')
+      .click({ button: 'right' })
+    const dark = await page
+      .locator('.jv-menu')
+      .evaluate((el) => getComputedStyle(el).backgroundColor)
+    check('menu follows dark theme', dark !== 'rgb(255, 255, 255)', dark)
+  },
+  { colorScheme: 'dark' },
+)
+
+await withBrowser('en-US', async (page, errors) => {
+  await page.goto(base + '/primitive.json')
+  await page.waitForTimeout(1000)
+  await page.mouse.click(50, 50, { button: 'right' })
+  check(
+    'root primitive: no overlay menu, no errors',
+    (await page.locator('.jv-menu').count()) === 0 && errors.length === 0,
+    errors.join(' ; '),
+  )
+})
+
 server.close()
 console.log(`${passes} passed, ${failures} failed`)
 process.exit(failures ? 1 : 0)
