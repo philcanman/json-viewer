@@ -57,6 +57,7 @@ export const downloadL10nList = async (done) => {
 
 export const downloadL10nContent = async (done) => {
   const locales = fs.readJsonSync('./vendor/l10n.json')
+  fs.ensureDirSync('./vendor/l10n')
   for (const locale of locales) {
     const res = await fetch(
       `https://hg.mozilla.org/l10n-central/${locale}/raw-file/tip/devtools/client/jsonview.properties`
@@ -87,8 +88,8 @@ export const gecko = gulp.series(
       )
       .pipe(
         replace(
-          // devtools/client/shared/components/reps/reps/custom-formatter.js
-          `require("resource://devtools/shared/flags.js")`,
+          // devtools/client/shared/components/reps/reps/custom-formatter.mjs
+          `loader.require("resource://devtools/shared/flags.js")`,
           '{ testing: false }'
         )
       )
