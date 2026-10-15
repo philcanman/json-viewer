@@ -9,6 +9,27 @@ export interface PathStep {
 
 const JS_IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/
 const PLAIN_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/
+// jq 1.6 rejects these as bare field names (.end); 1.7+ accepts them
+const JQ_KEYWORDS = new Set([
+  '__loc__',
+  'and',
+  'as',
+  'catch',
+  'def',
+  'elif',
+  'else',
+  'end',
+  'foreach',
+  'if',
+  'import',
+  'include',
+  'label',
+  'module',
+  'or',
+  'reduce',
+  'then',
+  'try',
+])
 
 /** Inverse of Mozilla's TreeView.subPath: "/" separates, "\" escapes "/" and "\". */
 export function parseRowPath(id: string): string[] {
@@ -61,7 +82,7 @@ export function formatPath(steps: PathStep[], format: PathFormat): string {
         .map((s) =>
           s.isIndex
             ? `[${s.key}]`
-            : PLAIN_IDENT.test(s.key)
+            : PLAIN_IDENT.test(s.key) && !JQ_KEYWORDS.has(s.key)
               ? `.${s.key}`
               : `[${JSON.stringify(s.key)}]`,
         )

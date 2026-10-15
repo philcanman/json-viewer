@@ -28,6 +28,24 @@ const preview = (p: string) => {
   return s.length > PREVIEW_MAX ? s.slice(0, PREVIEW_MAX - 1) + '…' : s
 }
 
+function Submenu({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [style, setStyle] = useState<React.CSSProperties>({})
+  useLayoutEffect(() => {
+    const r = ref.current?.getBoundingClientRect()
+    if (!r) return
+    setStyle({
+      ...(r.right > innerWidth ? { left: 'auto', right: '100%' } : {}),
+      ...(r.bottom > innerHeight ? { top: innerHeight - r.bottom - 4 } : {}),
+    })
+  }, [])
+  return (
+    <div ref={ref} className="jv-menu jv-submenu" role="menu" style={style}>
+      {children}
+    </div>
+  )
+}
+
 export function ContextMenu({
   model,
   actions,
@@ -114,7 +132,7 @@ export function ContextMenu({
           <span className="jv-menu-preview">▸</span>
         </button>
         {subOpen && (
-          <div className="jv-menu jv-submenu" role="menu">
+          <Submenu>
             {PATH_FORMATS.map((f) => (
               <button
                 key={f}
@@ -132,7 +150,7 @@ export function ContextMenu({
                 </span>
               </button>
             ))}
-          </div>
+          </Submenu>
         )}
       </div>
       <button

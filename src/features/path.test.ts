@@ -73,3 +73,18 @@ describe('formatPath', () => {
     expect(formatPath([], format)).toBe(expected)
   })
 })
+
+describe('formatPath jq keywords', () => {
+  it.each([
+    [[k('end')], '.["end"]'],
+    [[k('a'), k('if')], '.a["if"]'],
+    [[k('and'), k('x')], '.["and"].x'],
+    [[k('reduce')], '.["reduce"]'],
+    [[k('__loc__')], '.["__loc__"]'],
+  ] as const)('%j', (steps, expected) => {
+    expect(formatPath([...steps], 'jq')).toBe(expected)
+  })
+  it('leaves non-keywords bare', () => {
+    expect(formatPath([k('ending')], 'jq')).toBe('.ending')
+  })
+})

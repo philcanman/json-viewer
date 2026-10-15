@@ -39,7 +39,20 @@ const hugeNested = JSON.stringify({
   big: JSON.stringify({ s: 'x'.repeat(1_100_000) }),
 })
 
+const bigJwt = `${b64url({ alg: 'HS256' })}.${b64url(Object.fromEntries(Array.from({ length: 80 }, (_, i) => [`claim${i}`, `value ${i}`])))}.c2ln`
+const records = JSON.stringify([
+  {
+    payload: JSON.stringify({
+      x: JSON.stringify({ a: 1 }),
+      list: Array.from({ length: 60 }, (_, i) => ({ i, name: `n${i}` })),
+    }),
+  },
+  { payload: JSON.stringify({ x: 'plain' }) },
+  { token: bigJwt },
+])
+
 const routes = {
+  '/records.json': ['application/json', records],
   '/data.json': ['application/json', fixture],
   '/primitive.json': ['application/json', '123'],
   '/large.json': ['application/json', large],
@@ -73,6 +86,17 @@ export const check = (name, ok, extra = '') => {
 export const row = (page, p) =>
   page.locator(`tr.treeRow[id="${p.replace(/[\\"]/g, '\\$&')}"]`)
 export const copied = (page) => page.evaluate(() => window.__copied.at(-1))
+const nativeMenuAllowed = (page) =>
+  page.evaluate(() => window.__ctx.at(-1) === false)
+const themeColor = (page, cssVar) =>
+  page.evaluate((v) => {
+    const probe = document.createElement('div')
+    probe.style.background = `var(${v})`
+    document.body.appendChild(probe)
+    const color = getComputedStyle(probe).backgroundColor
+    probe.remove()
+    return color
+  }, cssVar)
 
 export async function withBrowser(locale, fn, { colorScheme = 'light' } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jv-'))
@@ -87,6 +111,10 @@ export async function withBrowser(locale, fn, { colorScheme = 'light' } = {}) {
     window.__copied = []
     window.addEventListener('copy', (e) =>
       window.__copied.push(e.clipboardData.getData('text/plain')),
+    )
+    window.__ctx = []
+    window.addEventListener('contextmenu', (e) =>
+      window.__ctx.push(e.defaultPrevented),
     )
   })
   const errors = []
@@ -322,7 +350,8 @@ await withBrowser('en-US', async (page, errors) => {
   await openMenu('/many/[0…99]')
   check(
     'bucket row keeps native menu',
-    (await page.locator('.jv-menu').count()) === 0,
+    (await page.locator('.jv-menu').count()) === 0 &&
+      (await nativeMenuAllowed(page)),
   )
 
   await page.selectOption('#jv-path-format', 'jq')
@@ -352,10 +381,30 @@ await withBrowser(
     await row(page, '/name')
       .locator('td.treeLabelCell')
       .click({ button: 'right' })
-    const dark = await page
-      .locator('.jv-menu')
-      .evaluate((el) => getComputedStyle(el).backgroundColor)
-    check('menu follows dark theme', dark !== 'rgb(255, 255, 255)', dark)
+    const bg = (sel) =>
+      page.locator(sel).evaluate((el) => getComputedStyle(el).backgroundColor)
+    const body = await themeColor(page, '--theme-body-background')
+    const toolbar = await themeColor(page, '--theme-toolbar-background')
+    const menuBg = await bg('.jv-menu')
+    check(
+      'menu follows dark theme',
+      menuBg === body && body !== 'rgb(255, 255, 255)',
+      `${menuBg} vs ${body}`,
+    )
+    await page.keyboard.press('Escape')
+    await page.mouse.move(1, 1)
+    await row(page, '/createdAt').locator('td.treeValueCell').hover()
+    await page.waitForSelector('.jv-tooltip', { timeout: 2000 }).catch(() => {})
+    const tipBg = await bg('.jv-tooltip').catch(() => '')
+    check(
+      'tooltip follows dark theme',
+      tipBg === toolbar,
+      `${tipBg} vs ${toolbar}`,
+    )
+    await page.mouse.move(1, 1)
+    await row(page, '/payload').locator('.jv-nested-badge').click()
+    const panelBg = await bg('#jv-panel').catch(() => '')
+    check('panel follows dark theme', panelBg === body, `${panelBg} vs ${body}`)
   },
   { colorScheme: 'dark' },
 )
@@ -366,7 +415,9 @@ await withBrowser('en-US', async (page, errors) => {
   await page.mouse.click(50, 50, { button: 'right' })
   check(
     'root primitive: no overlay menu, no errors',
-    (await page.locator('.jv-menu').count()) === 0 && errors.length === 0,
+    (await page.locator('.jv-menu').count()) === 0 &&
+      errors.length === 0 &&
+      (await nativeMenuAllowed(page)),
     errors.join(' ; '),
   )
 })
@@ -512,13 +563,152 @@ await withBrowser('en-US', async (page, errors) => {
       () => false,
     )
   const ms = Date.now() - started
-  const responsive = await page.evaluate(() => 1 + 1).then((v) => v === 2)
   check(
-    'large doc: Expand All badges all 3000 rows and stays responsive',
-    badged && responsive,
+    'large doc: Expand All badges all 3000 rows within 5 s',
+    badged && ms < 5000,
     `${ms} ms`,
   )
   check('no errors on large doc', errors.length === 0, errors.join(' ; '))
+})
+
+await withBrowser('en-US', async (page, errors) => {
+  await page.goto(base + '/records.json')
+  await page.waitForSelector('.treeTable', { timeout: 10000 })
+  const panelBody = page.locator('.jv-panel-body')
+  const panelRow = (p) => page.locator('#jv-panel').locator(row(page, p))
+
+  await row(page, '/0/payload').locator('.jv-nested-badge').click()
+  await panelBody.evaluate((el) => {
+    el.scrollTop = el.scrollHeight
+  })
+  await page.waitForTimeout(200)
+  const before = await panelBody.evaluate((el) => el.scrollTop)
+  await panelRow('/list/59/name')
+    .locator('td.treeLabelCell')
+    .click({ button: 'right' })
+  await page.waitForTimeout(300)
+  const after = await panelBody.evaluate((el) => el.scrollTop)
+  check(
+    'panel keeps its scroll position when the menu opens',
+    before > 0 && after === before,
+    `${before} -> ${after}`,
+  )
+  check(
+    'menu stays open over a scrolled panel',
+    (await page.locator('.jv-menu').count()) === 1,
+  )
+
+  await page.keyboard.press('Escape')
+  const edgeCell = panelRow('/list/59/name').locator('td.treeValueCell')
+  const edgeBox = await edgeCell.boundingBox()
+  await edgeCell.click({
+    button: 'right',
+    position: { x: edgeBox.width - 5, y: edgeBox.height / 2 },
+  })
+  await page.locator('[data-action="copy-path-as"]').hover()
+  const sub = await page.locator('.jv-submenu').boundingBox()
+  const vw = await page.evaluate(() => innerWidth)
+  check(
+    'submenu stays inside the viewport',
+    !!sub && sub.x >= 0 && sub.x + sub.width <= vw,
+    JSON.stringify(sub),
+  )
+  await page.keyboard.press('Escape')
+
+  check(
+    'level 0 string with JSON has a badge',
+    (await panelRow('/x').locator('.jv-nested-badge').count()) === 1,
+  )
+  await row(page, '/1/payload').locator('.jv-nested-badge').click()
+  check(
+    'replacing level 0 drops stale badges',
+    (await panelRow('/x').locator('.jv-nested-badge').count()) === 0,
+  )
+
+  const filter = await page
+    .locator('.jsonPanelBox .devtools-filterinput')
+    .boundingBox()
+  const topEl =
+    filter &&
+    (await page.evaluate(
+      ({ x, y }) => document.elementFromPoint(x, y)?.tagName,
+      { x: filter.x + filter.width / 2, y: filter.y + filter.height / 2 },
+    ))
+  check('panel leaves the Filter box usable', topEl === 'INPUT', String(topEl))
+
+  await page.click('.tabs-menu-item:nth-child(2) a')
+  check(
+    'panel hidden on Raw Data tab',
+    (await page.locator('#jv-panel').count()) === 0,
+  )
+  await page.click('.tabs-menu-item:nth-child(1) a')
+  check(
+    'panel returns on JSON tab',
+    (await page.locator('#jv-panel').count()) === 1,
+  )
+  await page.locator('.jv-panel-close').click()
+
+  await page.mouse.move(1, 1)
+  await row(page, '/2/token')
+    .locator('td.treeValueCell')
+    .hover({ position: { x: 20, y: 10 } })
+  await page.waitForSelector('.jv-tooltip', { timeout: 2000 }).catch(() => {})
+  const scrollable = await page
+    .locator('.jv-tooltip')
+    .evaluate((el) => el.scrollHeight > el.clientHeight)
+    .catch(() => false)
+  await page
+    .locator('.jv-tooltip')
+    .evaluate((el) => {
+      el.scrollTop = 100
+    })
+    .catch(() => {})
+  await page.waitForTimeout(200)
+  const tipsAfter = await page.locator('.jv-tooltip').count()
+  check(
+    'long tooltip can be scrolled without closing',
+    scrollable && tipsAfter === 1,
+    `scrollable=${scrollable} tooltips=${tipsAfter}`,
+  )
+
+  await page.mouse.move(1, 1)
+  await page.evaluate(() => {
+    const cell = document.querySelector(
+      'tr.treeRow[id="/0/payload"] td.treeLabelCell',
+    )
+    const range = document.createRange()
+    range.selectNodeContents(cell)
+    getSelection().removeAllRanges()
+    getSelection().addRange(range)
+  })
+  await row(page, '/0/payload')
+    .locator('td.treeLabelCell')
+    .click({ button: 'right' })
+  check(
+    'right-click on selected text keeps native menu',
+    (await page.locator('.jv-menu').count()) === 0 &&
+      (await nativeMenuAllowed(page)),
+  )
+
+  const selected = await page.evaluate(() => {
+    const range = document.createRange()
+    range.selectNodeContents(
+      document.querySelector('tr.treeRow[id="/1/payload"]'),
+    )
+    getSelection().removeAllRanges()
+    getSelection().addRange(range)
+    return getSelection().toString()
+  })
+  check(
+    'badge glyph not in selected text',
+    selected.includes('payload') && !selected.includes('{…}'),
+    JSON.stringify(selected),
+  )
+  check(
+    'no errors during review-fix checks',
+    errors.length === 0,
+    errors.join(' ; '),
+  )
 })
 
 server.close()

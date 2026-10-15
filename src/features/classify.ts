@@ -180,9 +180,12 @@ export function classifyJwt(value: unknown, now: number): JwtHint | null {
     typeof payload === 'object' && payload !== null
       ? (payload as Record<string, unknown>)
       : {}
-  const times = TIME_CLAIMS.filter((c) => typeof claims[c] === 'number').map(
-    (claim) => ({ claim, date: new Date((claims[claim] as number) * 1000) }),
-  )
+  const times = TIME_CLAIMS.filter((c) => typeof claims[c] === 'number')
+    .map((claim) => ({
+      claim,
+      date: new Date((claims[claim] as number) * 1000),
+    }))
+    .filter((t) => Number.isFinite(t.date.getTime()))
   const exp = claims.exp
   return {
     kind: 'jwt',

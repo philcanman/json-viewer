@@ -198,3 +198,16 @@ describe('classify', () => {
     expect(classify({ a: 1 }, NOW)).toBeNull()
   })
 })
+
+describe('classifyJwt time claims', () => {
+  it('drops claims that are not valid dates', () => {
+    const hint = classifyJwt(
+      jwt({ alg: 'HS256' }, { exp: 1e20, iat: 1700000000, nbf: 'soon' }),
+      NOW,
+    )
+    expect(hint?.times).toEqual([
+      { claim: 'iat', date: new Date(1700000000000) },
+    ])
+    expect(hint?.expired).toBe(false)
+  })
+})

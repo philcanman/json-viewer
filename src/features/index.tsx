@@ -40,6 +40,10 @@ const guard = (fn: () => void) => {
 export function installFeatures(content: HTMLElement): void {
   const overlay = document.createElement('div')
   overlay.id = 'jv-overlay'
+  // Separate roots so menu/tooltip renders never re-render the panel's TreeView
+  const panelRoot = document.createElement('div')
+  const layerRoot = document.createElement('div')
+  overlay.append(panelRoot, layerRoot)
   document.body.appendChild(overlay)
 
   let pathFormat: PathFormat = DEFAULT_PATH_FORMAT
@@ -59,6 +63,8 @@ export function installFeatures(content: HTMLElement): void {
   }
 
   let levels: PanelLevel[] = []
+  let nextLevelId = 0
+  let jsonTabActive = true
   let panelWidth = Math.round(window.innerWidth * 0.4)
   const nestedCache = new Map<string, boolean>()
 
@@ -68,12 +74,13 @@ export function installFeatures(content: HTMLElement): void {
       if (!key.startsWith('main:')) nestedCache.delete(key)
     }
     hideTooltip()
-    render()
+    renderPanel()
   }
 
   const openNested = (target: Target) => {
     if (typeof target.value !== 'string') return
     const level: PanelLevel = {
+      id: nextLevelId++,
       title: formatPath(target.steps, pathFormat) || '(root)',
       value: parseNested(target.value),
       sourceLength: target.value.length,
@@ -145,10 +152,10 @@ export function installFeatures(content: HTMLElement): void {
     close: closeMenu,
   }
 
-  function render() {
+  function renderPanel() {
     ReactDOM.render(
       <>
-        {levels.length > 0 && (
+        {levels.length > 0 && jsonTabActive && (
           <SidePanel
             levels={levels}
             width={panelWidth}
@@ -157,10 +164,18 @@ export function installFeatures(content: HTMLElement): void {
             onClose={() => setLevels([])}
             onResize={(w) => {
               panelWidth = w
-              render()
+              renderPanel()
             }}
           />
         )}
+      </>,
+      panelRoot,
+    )
+  }
+
+  function render() {
+    ReactDOM.render(
+      <>
         {menu && (
           <ContextMenu
             key={`${menu.model.x},${menu.model.y}`}
@@ -170,7 +185,7 @@ export function installFeatures(content: HTMLElement): void {
         )}
         {tooltip && <Tooltip model={tooltip} />}
       </>,
-      overlay,
+      layerRoot,
     )
   }
 
@@ -178,6 +193,14 @@ export function installFeatures(content: HTMLElement): void {
     guard(() => {
       const target = targetOf(e.target)
       if (!target) return
+      const selection = getSelection()
+      if (
+        selection &&
+        !selection.isCollapsed &&
+        selection.containsNode(target.row, true)
+      ) {
+        return
+      }
       e.preventDefault()
       hideTooltip()
       const paths = {} as Record<PathFormat, string>
@@ -208,7 +231,23 @@ export function installFeatures(content: HTMLElement): void {
   )
   window.addEventListener('scroll', closeMenu, true)
   window.addEventListener('blur', closeMenu)
-  window.addEventListener('scroll', hideTooltip, true)
+  window.addEventListener(
+    'scroll',
+    (e) => {
+      const tip = layerRoot.querySelector('.jv-tooltip')
+      if (e.target instanceof Node && tip?.contains(e.target)) return
+      hideTooltip()
+    },
+    true,
+  )
+  window.addEventListener('TabChanged', (e) =>
+    guard(() => {
+      jsonTabActive = (e as CustomEvent).detail?.index === 0
+      closeMenu()
+      hideTooltip()
+      renderPanel()
+    }),
+  )
   document.documentElement.addEventListener('mouseleave', hideTooltip)
   document.addEventListener('mouseover', (e) =>
     guard(() => {
@@ -278,7 +317,7 @@ export function installFeatures(content: HTMLElement): void {
     badge.setAttribute('role', 'button')
     badge.tabIndex = 0
     badge.title = 'View as JSON'
-    badge.textContent = '{…}'
+    badge.setAttribute('aria-label', 'View as JSON')
     // Stops the click before React's document listener toggles the row
     const open = (e: Event) => {
       e.stopPropagation()

@@ -4,6 +4,7 @@ import { Rep } from 'devtools/client/shared/components/reps/reps/rep.mjs'
 import { MODE } from 'devtools/client/shared/components/reps/reps/constants.mjs'
 
 export interface PanelLevel {
+  id: number
   title: string
   value: object | null
   sourceLength: number
@@ -55,6 +56,7 @@ function LevelTree({ level, index }: { level: PanelLevel; index: number }) {
         renderValue={renderValue}
         expandedNodes={expandedNodes}
         maxStringLength={MAX_STRING_LENGTH}
+        defaultSelectFirstNode={false}
       />
     </div>
   )
@@ -120,7 +122,11 @@ export function SidePanel({
         </button>
       </header>
       <div className="jv-panel-body">
-        <LevelTree key={current} level={levels[current]} index={current} />
+        <LevelTree
+          key={levels[current].id}
+          level={levels[current]}
+          index={current}
+        />
       </div>
     </aside>
   )

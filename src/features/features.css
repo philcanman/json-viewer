@@ -201,6 +201,10 @@
   cursor: pointer;
 }
 
+.jv-nested-badge::before {
+  content: '{\2026}';
+}
+
 .jv-nested-badge:hover,
 .jv-nested-badge:focus {
   background: var(--theme-selection-background, #0074e8);
