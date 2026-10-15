@@ -1,4 +1,5 @@
 // @ts-check
+import crypto from 'crypto'
 import fs from 'fs-extra'
 import gulp from 'gulp'
 import download from 'gulp-download-stream'
@@ -12,12 +13,29 @@ import { deleteAsync } from 'del'
 
 const color = 'rgba(135, 135, 137, 0.9)'
 
-// https://hg.mozilla.org/mozilla-central/file/tip/devtools/client
+// Firefox 158.0 (FIREFOX_158_0_RELEASE)
+const geckoRev = 'eb9a6e3a736802c8e080a76c44dc81f409d99d54'
+const geckoSha256 =
+  '9c0db5752688a9416ed47ebb436650b9ad2fcbb00fcd31c6cec65b79be45763c'
+
+// https://hg.mozilla.org/releases/mozilla-release/file/eb9a6e3a736802c8e080a76c44dc81f409d99d54/devtools/client
 export const downloadGeckoZip = () => {
   return download({
     file: 'gecko.zip',
-    url: 'https://hg.mozilla.org/mozilla-central/archive/tip.zip/devtools/client/',
+    url: `https://hg.mozilla.org/releases/mozilla-release/archive/${geckoRev}.zip/devtools/client/`,
   }).pipe(gulp.dest('.'))
+}
+
+const verifyGeckoZip = async () => {
+  const hash = crypto
+    .createHash('sha256')
+    .update(await fs.readFile('./gecko.zip'))
+    .digest('hex')
+  if (hash !== geckoSha256) {
+    throw new Error(
+      `gecko.zip sha256 mismatch: expected ${geckoSha256}, got ${hash}`
+    )
+  }
 }
 
 export const downloadL10nList = async (done) => {
@@ -39,6 +57,7 @@ export const downloadL10nList = async (done) => {
 
 export const downloadL10nContent = async (done) => {
   const locales = fs.readJsonSync('./vendor/l10n.json')
+  fs.ensureDirSync('./vendor/l10n')
   for (const locale of locales) {
     const res = await fetch(
       `https://hg.mozilla.org/l10n-central/${locale}/raw-file/tip/devtools/client/jsonview.properties`
@@ -54,6 +73,7 @@ export const downloadL10nContent = async (done) => {
 }
 
 export const gecko = gulp.series(
+  verifyGeckoZip,
   () => {
     return deleteAsync('./vendor/gecko')
   },
@@ -63,13 +83,13 @@ export const gecko = gulp.series(
       .pipe(unzip())
       .pipe(
         rename((obj) => {
-          obj.dirname = obj.dirname.replace(/mozilla-central-.*?\//, 'gecko/')
+          obj.dirname = obj.dirname.replace(/mozilla-release-.*?\//, 'gecko/')
         })
       )
       .pipe(
         replace(
-          // devtools/client/shared/components/reps/reps/custom-formatter.js
-          `require("resource://devtools/shared/flags.js")`,
+          // devtools/client/shared/components/reps/reps/custom-formatter.mjs
+          `loader.require("resource://devtools/shared/flags.js")`,
           '{ testing: false }'
         )
       )

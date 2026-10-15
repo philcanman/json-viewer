@@ -44,11 +44,14 @@ export function render(jsonText: string) {
 
   const JSONView = {
     json: new Text(jsonText),
-    Locale: locale ?? defaultLocale,
+    Locale: { ...defaultLocale, ...locale },
     headers: {
       request: [],
       response: [],
     },
+    isJsonlines: false,
+    // Sends the JSON to profiler.firefox.com; keep it off
+    sizeProfilerEnabled: false,
   }
   logDebug('JSONView', JSONView)
   ;(window as any).JSONView = JSONView
@@ -77,5 +80,5 @@ export function render(jsonText: string) {
   require('./index.css')
 
   // Render JSONView component
-  require('devtools/client/jsonview/json-viewer')
+  require('devtools/client/jsonview/json-viewer.mjs')
 }

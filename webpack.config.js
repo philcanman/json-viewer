@@ -51,10 +51,14 @@ module.exports = {
   resolve: {
     extensions: ['.ts', '.tsx', '...'],
     alias: {
-      'devtools/client/shared/vendor/react': 'react',
-      'devtools/client/shared/vendor/react-dom': 'react-dom',
-      'devtools/client/shared/vendor/react-prop-types': 'prop-types',
+      // One React for the whole bundle: the copy the devtools code ships with
+      react$: path.resolve('src/mozilla-react.js'),
+      'react-dom$': path.resolve('src/mozilla-react-dom.js'),
       Services: path.resolve('src/services'),
+      // Mirrors the content/jsonview/images mapping in devtools/client/jar.mn
+      'devtools/client/jsonview/images': path.resolve(
+        'vendor/gecko/devtools/client/jsonview/assets/icons'
+      ),
       devtools: path.resolve('vendor/gecko/devtools'),
       l10n: path.resolve('vendor/l10n'),
     },
