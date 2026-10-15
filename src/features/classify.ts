@@ -81,3 +81,119 @@ export function formatRelative(
   }
   return rtf.format(0, 'second')
 }
+
+export type ColorHint = {
+  kind: 'color'
+  hex: string
+  r: number
+  g: number
+  b: number
+  a: number | null
+}
+
+export type JwtHint = {
+  kind: 'jwt'
+  header: Record<string, unknown>
+  payload: unknown | null
+  payloadText: string
+  times: { claim: 'exp' | 'iat' | 'nbf'; date: Date }[]
+  expired: boolean
+}
+
+export type Hint = DateHint | ColorHint | JwtHint
+
+const HEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
+
+export function classifyColor(value: unknown): ColorHint | null {
+  if (typeof value !== 'string') return null
+  const m = HEX.exec(value)
+  if (!m) return null
+  const digits =
+    m[1].length <= 4
+      ? m[1]
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : m[1]
+  const byte = (i: number) => parseInt(digits.slice(i, i + 2), 16)
+  return {
+    kind: 'color',
+    hex: value,
+    r: byte(0),
+    g: byte(2),
+    b: byte(4),
+    a: digits.length === 8 ? Math.round((byte(6) / 255) * 100) / 100 : null,
+  }
+}
+
+export const rgbText = ({ r, g, b, a }: ColorHint): string =>
+  a === null ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${a})`
+
+const JWT = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$/
+const JWT_MAX_LENGTH = 65536
+const TIME_CLAIMS = ['exp', 'iat', 'nbf'] as const
+
+function decodeSegment(segment: string): string | null {
+  try {
+    const b64 = segment
+      .replace(/-/g, '+')
+      .replace(/_/g, '/')
+      .padEnd(Math.ceil(segment.length / 4) * 4, '=')
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    return null
+  }
+}
+
+function parseJson(text: string): unknown | null {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+export function classifyJwt(value: unknown, now: number): JwtHint | null {
+  if (
+    typeof value !== 'string' ||
+    value.length > JWT_MAX_LENGTH ||
+    !JWT.test(value)
+  ) {
+    return null
+  }
+  const [h, p] = value.split('.')
+  const headerText = decodeSegment(h)
+  const header = headerText === null ? null : parseJson(headerText)
+  if (
+    typeof header !== 'object' ||
+    header === null ||
+    Array.isArray(header) ||
+    typeof (header as { alg?: unknown }).alg !== 'string'
+  ) {
+    return null
+  }
+  const payloadText = decodeSegment(p)
+  if (payloadText === null) return null
+  const payload = parseJson(payloadText)
+  const claims =
+    typeof payload === 'object' && payload !== null
+      ? (payload as Record<string, unknown>)
+      : {}
+  const times = TIME_CLAIMS.filter((c) => typeof claims[c] === 'number').map(
+    (claim) => ({ claim, date: new Date((claims[claim] as number) * 1000) }),
+  )
+  const exp = claims.exp
+  return {
+    kind: 'jwt',
+    header: header as Record<string, unknown>,
+    payload,
+    payloadText,
+    times,
+    expired: typeof exp === 'number' && exp * 1000 < now,
+  }
+}
+
+export function classify(value: unknown, now: number): Hint | null {
+  return classifyColor(value) ?? classifyJwt(value, now) ?? classifyDate(value)
+}

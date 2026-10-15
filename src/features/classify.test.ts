@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { classifyDate, formatLocal, formatRelative } from './classify'
+import {
+  classify,
+  classifyColor,
+  classifyDate,
+  classifyJwt,
+  formatLocal,
+  formatRelative,
+  rgbText,
+} from './classify'
 import { parseLossless } from './lossless'
 
 const NOW = Date.UTC(2026, 9, 15, 12) // 2026-10-15 12:00 UTC
@@ -99,5 +107,94 @@ describe('formatRelative', () => {
         dateOnly: true,
       }),
     ).toBe('3 days ago')
+  })
+})
+
+describe('classifyColor', () => {
+  it.each([
+    ['#f80', 'rgb(255, 136, 0)'],
+    ['#ff8800', 'rgb(255, 136, 0)'],
+    ['#FF8800', 'rgb(255, 136, 0)'],
+    ['#ff880080', 'rgba(255, 136, 0, 0.5)'],
+    ['#f808', 'rgba(255, 136, 0, 0.53)'],
+  ])('%s -> %s', (hex, text) => {
+    const hint = classifyColor(hex)
+    expect(hint).not.toBeNull()
+    expect(rgbText(hint!)).toBe(text)
+    expect(hint!.hex).toBe(hex)
+  })
+  it.each(['ff8800', '#ggg', '#ff88000', '#', 'red', 255])(
+    'rejects %j',
+    (value) => {
+      expect(classifyColor(value)).toBeNull()
+    },
+  )
+})
+
+const b64url = (v: unknown) =>
+  Buffer.from(typeof v === 'string' ? v : JSON.stringify(v)).toString(
+    'base64url',
+  )
+const jwt = (header: unknown, payload: unknown, sig = 'c2ln') =>
+  `${b64url(header)}.${b64url(payload)}.${sig}`
+
+describe('classifyJwt', () => {
+  const header = { alg: 'HS256', typ: 'JWT' }
+  it('decodes header, payload and time claims', () => {
+    const token = jwt(header, {
+      sub: '123',
+      name: 'Zoë',
+      iat: 1700000000,
+      exp: 4102444799,
+    })
+    expect(classifyJwt(token, NOW)).toEqual({
+      kind: 'jwt',
+      header,
+      payload: { sub: '123', name: 'Zoë', iat: 1700000000, exp: 4102444799 },
+      payloadText: JSON.stringify({
+        sub: '123',
+        name: 'Zoë',
+        iat: 1700000000,
+        exp: 4102444799,
+      }),
+      times: [
+        { claim: 'exp', date: new Date(4102444799000) },
+        { claim: 'iat', date: new Date(1700000000000) },
+      ],
+      expired: false,
+    })
+  })
+  it('flags expired tokens', () => {
+    expect(classifyJwt(jwt(header, { exp: 1700000000 }), NOW)?.expired).toBe(
+      true,
+    )
+  })
+  it('keeps non-JSON payload text', () => {
+    expect(classifyJwt(jwt(header, 'hello'), NOW)).toMatchObject({
+      payload: null,
+      payloadText: 'hello',
+    })
+  })
+  it('accepts an empty signature', () => {
+    expect(classifyJwt(jwt(header, {}, ''), NOW)).not.toBeNull()
+  })
+  it.each([
+    ['a.b.c'],
+    [jwt({ typ: 'JWT' }, {})],
+    [jwt('not json', {})],
+    [jwt(header, { pad: 'x'.repeat(70000) })],
+    ['abc'],
+  ])('rejects %#', (token) => {
+    expect(classifyJwt(token, NOW)).toBeNull()
+  })
+})
+
+describe('classify', () => {
+  it('dispatches to the right hint', () => {
+    expect(classify(1700000000, NOW)?.kind).toBe('date')
+    expect(classify('#fff', NOW)?.kind).toBe('color')
+    expect(classify(jwt({ alg: 'none' }, { sub: '1' }), NOW)?.kind).toBe('jwt')
+    expect(classify('hello', NOW)).toBeNull()
+    expect(classify({ a: 1 }, NOW)).toBeNull()
   })
 })
