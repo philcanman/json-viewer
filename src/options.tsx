@@ -1,6 +1,13 @@
 import React, { FC, useEffect, useState } from 'react'
 import { useMedia } from 'react-use'
 import { logDebug } from './utils'
+import { PathFormat } from './features/path'
+import {
+  DEFAULT_PATH_FORMAT,
+  normalizePathFormat,
+  savePathFormat,
+  watchPathFormat,
+} from './features/settings'
 
 const availableThemes = ['light', 'dark'] as const
 
@@ -43,8 +50,18 @@ const useTheme = () => {
   }
 }
 
+const usePathFormat = () => {
+  const [format, setFormat] = useState<PathFormat>(DEFAULT_PATH_FORMAT)
+  useEffect(() => watchPathFormat(setFormat), [])
+  return {
+    format,
+    setFormat: (v: string) => savePathFormat(normalizePathFormat(v)),
+  }
+}
+
 export const Options: FC = () => {
   const { userTheme, setUserTheme } = useTheme()
+  const pathFormat = usePathFormat()
 
   return (
     <div
@@ -57,6 +74,7 @@ export const Options: FC = () => {
     >
       Theme:&nbsp;&nbsp;
       <select
+        id="jv-theme"
         value={userTheme ?? 'system'}
         onChange={(e) => {
           setUserTheme(e.target.value)
@@ -66,6 +84,16 @@ export const Options: FC = () => {
         {availableThemes.map((v) => (
           <option key={v}>{v}</option>
         ))}
+      </select>
+      &nbsp;&nbsp;&nbsp;&nbsp;Path:&nbsp;&nbsp;
+      <select
+        id="jv-path-format"
+        value={pathFormat.format}
+        onChange={(e) => pathFormat.setFormat(e.target.value)}
+      >
+        <option value="js">JS</option>
+        <option value="jsonpath">JSONPath</option>
+        <option value="jq">jq</option>
       </select>
       &nbsp;&nbsp;&nbsp;&nbsp;
       <a href="https://github.com/pd4d10/json-viewer" target="_blank">

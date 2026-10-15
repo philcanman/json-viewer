@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom'
 import Options from './options'
 import { logDebug } from './utils'
+import { installFeatures } from './features'
 
 export function render(jsonText: string) {
   // Save button click event
@@ -81,4 +82,10 @@ export function render(jsonText: string) {
 
   // Render JSONView component
   require('devtools/client/jsonview/json-viewer.mjs')
+
+  try {
+    installFeatures(document.getElementById('content') as HTMLElement)
+  } catch (err) {
+    logDebug('features failed to install', err)
+  }
 }
