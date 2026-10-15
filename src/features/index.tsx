@@ -2,6 +2,8 @@ import React from 'react'
 import ReactDOM from 'react-dom'
 import { logDebug } from '../utils'
 import { copyToClipboard } from './clipboard'
+import { classify } from './classify'
+import { Tooltip, TooltipModel } from './Tooltip'
 import { ContextMenu, MenuActions, MenuModel } from './ContextMenu'
 import {
   formatPath,
@@ -22,6 +24,8 @@ interface Target {
   level: number | null
 }
 
+const HOVER_DELAY_MS = 300
+
 const guard = (fn: () => void) => {
   try {
     fn()
@@ -37,6 +41,19 @@ export function installFeatures(content: HTMLElement): void {
 
   let pathFormat: PathFormat = DEFAULT_PATH_FORMAT
   let menu: { model: MenuModel; target: Target } | null = null
+
+  let tooltip: TooltipModel | null = null
+  let hoverTimer: number | undefined
+  let hoverCell: Element | null = null
+
+  const hideTooltip = () => {
+    window.clearTimeout(hoverTimer)
+    hoverCell = null
+    if (tooltip) {
+      tooltip = null
+      render()
+    }
+  }
 
   const mainData = (): unknown =>
     (window as unknown as { $json?: { data: unknown } }).$json?.data
@@ -94,6 +111,7 @@ export function installFeatures(content: HTMLElement): void {
             actions={actions}
           />
         )}
+        {tooltip && <Tooltip model={tooltip} />}
       </>,
       overlay,
     )
@@ -104,6 +122,7 @@ export function installFeatures(content: HTMLElement): void {
       const target = targetOf(e.target)
       if (!target) return
       e.preventDefault()
+      hideTooltip()
       const paths = {} as Record<PathFormat, string>
       for (const f of PATH_FORMATS) paths[f] = formatPath(target.steps, f)
       menu = {
@@ -131,6 +150,39 @@ export function installFeatures(content: HTMLElement): void {
   )
   window.addEventListener('scroll', closeMenu, true)
   window.addEventListener('blur', closeMenu)
+  window.addEventListener('scroll', hideTooltip, true)
+  document.documentElement.addEventListener('mouseleave', hideTooltip)
+  document.addEventListener('mouseover', (e) =>
+    guard(() => {
+      if (!(e.target instanceof Element)) return
+      if (e.target.closest('.jv-tooltip')) {
+        window.clearTimeout(hoverTimer)
+        return
+      }
+      const cell = e.target.closest('td.treeValueCell')
+      if (cell === hoverCell) return
+      hideTooltip()
+      if (!cell) return
+      hoverCell = cell
+      hoverTimer = window.setTimeout(
+        () =>
+          guard(() => {
+            if (menu || hoverCell !== cell) return
+            const target = targetOf(cell)
+            const hint = target && classify(target.value, Date.now())
+            if (!hint) return
+            const r = cell.getBoundingClientRect()
+            tooltip = {
+              hint,
+              anchor: { left: r.left, top: r.top, bottom: r.bottom },
+              now: Date.now(),
+            }
+            render()
+          }),
+        HOVER_DELAY_MS,
+      )
+    }),
+  )
 
   watchPathFormat((f) => {
     pathFormat = f

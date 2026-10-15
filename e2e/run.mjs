@@ -371,6 +371,56 @@ await withBrowser('en-US', async (page, errors) => {
   )
 })
 
+await withBrowser('en-US', async (page, errors) => {
+  await page.goto(base + '/data.json')
+  await page.waitForSelector('.treeTable', { timeout: 10000 })
+  const hoverText = async (p) => {
+    await page.mouse.move(1, 1)
+    await page.waitForTimeout(100)
+    await row(page, p).locator('td.treeValueCell').hover()
+    await page.waitForSelector('.jv-tooltip', { timeout: 2000 }).catch(() => {})
+    return (
+      (await page
+        .locator('.jv-tooltip')
+        .textContent()
+        .catch(() => '')) ?? ''
+    )
+  }
+  const ts = await hoverText('/createdAt')
+  check(
+    'timestamp hover shows local date and relative time',
+    /2023/.test(ts) && /ago/.test(ts),
+    ts,
+  )
+  const color = await hoverText('/color')
+  check('color hover shows rgb', color.includes('rgb(255, 136, 0)'), color)
+  const swatch = await page
+    .locator('.jv-swatch span')
+    .evaluate((el) => getComputedStyle(el).backgroundColor)
+    .catch(() => '')
+  check('color hover paints swatch', swatch === 'rgb(255, 136, 0)', swatch)
+  const token = await hoverText('/token')
+  check(
+    'JWT hover decodes claims locally',
+    token.includes('"sub": "123"') &&
+      token.includes('Zoë') &&
+      token.includes('Signature not verified'),
+    token.slice(0, 120),
+  )
+  await page.mouse.move(1, 1)
+  await row(page, '/name').locator('td.treeValueCell').hover()
+  await page.waitForTimeout(700)
+  check(
+    'no hover for plain strings',
+    (await page.locator('.jv-tooltip').count()) === 0,
+  )
+  check(
+    'no errors during hover checks',
+    errors.length === 0,
+    errors.join(' ; '),
+  )
+})
+
 server.close()
 console.log(`${passes} passed, ${failures} failed`)
 process.exit(failures ? 1 : 0)
